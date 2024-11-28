@@ -44,7 +44,7 @@ export BinaryThresholdPredictor
 
 # from model/Transformers
 export UnivariateDiscretizer,
-    UnivariateStandardizer, Standardizer, UnivariateBoxCoxTransformer,
+    UnivariateStandardizer, Standardizer, MaxAbsScaler, UnivariateBoxCoxTransformer,
     OneHotEncoder, ContinuousEncoder, FillImputer, UnivariateFillImputer,
     UnivariateTimeTypeToContinuous, InteractionTransformer
 

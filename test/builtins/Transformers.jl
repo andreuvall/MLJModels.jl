@@ -174,6 +174,28 @@ end
     @test fp.std ≈ 2.0
 end
 
+#### MAXABSSCALER ####
+
+@testset "MaxAbsScaler" begin
+    maxabsscaler = MaxAbsScaler()
+    X = (
+        x = coerce([1, missing, 1, -2], Continuous),
+        y = coerce([2, -1, missing, 2], Continuous)
+    )
+    f, = MLJBase.fit(maxabsscaler, 2, X)
+    Xnew = (
+        x = coerce([1, -1, missing, 1], Continuous),
+        y = coerce([missing, -2, 2, 2], Continuous)
+    )
+    Ynew_expected = (
+        x = [0.5, -0.5, missing, 0.5],
+        y = [missing, -1.0, 1.0, 1.0]
+    )
+    Ynew = MLJBase.transform(maxabsscaler, f, Xnew)
+    @test isequal(Ynew, Ynew_expected)
+    @test isequal(MLJBase.inverse_transform(maxabsscaler, f, Ynew), Xnew)
+end
+
 ### TIMETYPE TO CONTINUOUS
 
 @testset "TimeTypeToContinuous" begin

@@ -633,6 +633,160 @@ function _standardize(operation, fitresult, X)
     return MMI.table(named_cols, prototype=X)
 end
 
+# # MAXABS SCALER
+# For now, only for `Continuous` scitypes
+# Base on the `Standardizer` above, and on Scikit-Learn's `MaxAbsScaler`
+# https://scikit-learn.org/stable/modules/generated/sklearn.preprocessing.MaxAbsScaler.html#sklearn.preprocessing.MaxAbsScaler
+mutable struct MaxAbsScaler <: Unsupervised
+    # features to be maxabs-scaled; empty means all
+    features::Union{AbstractVector{Symbol}, Function}
+    ignore::Bool # features to be ignored
+end
+
+# keyword constructor
+function MaxAbsScaler(
+    ;
+    features::Union{AbstractVector{Symbol}, Function}=Symbol[],
+    ignore::Bool=false,
+)
+    transformer = MaxAbsScaler(features, ignore)
+    message = MMI.clean!(transformer)
+    isempty(message) || throw(ArgumentError(message))
+    return transformer
+end
+
+function MMI.clean!(transformer::MaxAbsScaler)
+    err = ""
+    if (
+        typeof(transformer.features) <: AbstractVector{Symbol} &&
+        isempty(transformer.features) &&
+        transformer.ignore
+    )
+        err *= "Features to be ignored must be specified in features field."
+    end
+    return err
+end
+
+function MMI.fit(transformer::MaxAbsScaler, verbosity::Int, X)
+
+    Tables.istable(X) || throw(ArgumentError("X must adhere to the Tables.jl interface."))
+
+    # initialize fitresult:
+    fitresult_given_feature = LittleDict{Symbol,AbstractFloat}()
+
+    all_features = Tables.schema(X).names
+    feature_scitypes =
+        collect(elscitype(selectcols(X, c)) for c in all_features)
+    scitypes = Vector{Type}([Continuous, Union{Missing, Continuous}])
+    AllowedScitype = Union{scitypes...}
+
+    # determine indices of all_features to be transformed
+    if transformer.features isa AbstractVector{Symbol}
+        if isempty(transformer.features)
+            cols_to_fit = filter!(eachindex(all_features) |> collect) do j
+                feature_scitypes[j] <: AllowedScitype
+            end
+        else
+            !issubset(transformer.features, all_features) && verbosity > -1 &&
+                @warn "Some specified features not present in table to be fit. "
+            cols_to_fit = filter!(eachindex(all_features) |> collect) do j
+                ifelse(
+                    transformer.ignore,
+                    !(all_features[j] in transformer.features) &&
+                        feature_scitypes[j] <: AllowedScitype,
+                    (all_features[j] in transformer.features) &&
+                        feature_scitypes[j] <: AllowedScitype
+                )
+            end
+        end
+    else
+        cols_to_fit = filter!(eachindex(all_features) |> collect) do j
+            ifelse(
+                transformer.ignore,
+                !(transformer.features(all_features[j])) &&
+                    feature_scitypes[j] <: AllowedScitype,
+                (transformer.features(all_features[j])) &&
+                    feature_scitypes[j] <: AllowedScitype
+            )
+        end
+    end
+
+    isempty(cols_to_fit) && verbosity > -1 &&
+        @warn "No features to maxabs-scale."
+
+    # fit each feature and add result to above dict
+    verbosity > 1 && @info "Features maxabs-scaled: "
+    for j in cols_to_fit
+        col_data = selectcols(X, j)
+        col_fitresult = maximum(abs.(skipmissing(col_data)))
+        fitresult_given_feature[all_features[j]] = col_fitresult
+        verbosity > 1 &&
+            @info "  :$(all_features[j])    maxabs=$(col_fitresult)"
+    end
+
+    fitresult = (fitresult_given_feature=fitresult_given_feature)
+    cache = nothing
+    report = (features_fit=keys(fitresult_given_feature),)
+
+    return fitresult, cache, report
+end
+
+function MMI.fitted_params(::MaxAbsScaler, fitresult)
+    features_fit = keys(fitresult) |> collect
+    zipped = map(ftr->fitresult[ftr], features_fit)
+    maxs = zip(zipped...) |> collect
+    return (; features_fit, maxs)
+end
+
+function MMI.transform(::MaxAbsScaler, fitresult, X)
+    # `fitresult` is dict of column fitresults, keyed on feature names
+    fitresult_given_feature = fitresult
+
+    features_to_be_transformed = keys(fitresult_given_feature)
+
+    all_features = Tables.schema(X).names
+
+    all(e -> e in all_features, features_to_be_transformed) ||
+        error("Attempting to transform data with incompatible feature labels.")
+
+    cols = map(all_features) do ftr
+        ftr_data = selectcols(X, ftr)
+        if ftr in features_to_be_transformed
+            ftr_data ./ fitresult_given_feature[ftr]
+        else
+            ftr_data
+        end
+    end
+
+    named_cols = NamedTuple{all_features}(tuple(cols...))
+
+    return MMI.table(named_cols, prototype=X)
+end
+
+function MMI.inverse_transform(::MaxAbsScaler, fitresult, X)
+    # `fitresult` is dict of column fitresults, keyed on feature names
+    fitresult_given_feature = fitresult
+
+    features_to_be_transformed = keys(fitresult_given_feature)
+
+    all_features = Tables.schema(X).names
+
+    all(e -> e in all_features, features_to_be_transformed) ||
+        error("Attempting to transform data with incompatible feature labels.")
+
+    cols = map(all_features) do ftr
+        ftr_data = selectcols(X, ftr)
+        if ftr in features_to_be_transformed
+            ftr_data .* fitresult_given_feature[ftr]
+        else
+            ftr_data
+        end
+    end
+
+    named_cols = NamedTuple{all_features}(tuple(cols...))
+
+    return MMI.table(named_cols, prototype=X)
+end
 
 # # UNIVARIATE BOX-COX TRANSFORMATIONS
 
